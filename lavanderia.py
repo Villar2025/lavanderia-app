@@ -20,7 +20,8 @@ lavadoras_secadoras = {
     "Lavadora 9 kg": 85,
     "Lavadora 4 kg": 50,
     "Secadora 9 kg (15 minutos)": 30,
-    "Secadora 9 kg (30 minutos)": 60
+    "Secadora 9 kg (30 minutos)": 60,
+    "Secado": 80,  # ✅ nombre exacto que pediste
 }
 
 detergentes = {
@@ -59,9 +60,14 @@ for k, v in defaults.items():
 # --- INTERFAZ ---
 st.title("🧺 Sistema de Ventas - Lavandería")
 
-menu = st.sidebar.selectbox("Menú principal", ["Registrar venta", "Ver registros"])
+menu = st.sidebar.selectbox(
+    "Menú principal",
+    ["Registrar venta", "Ver registros", "Registrar encargo", "Ver encargos"]
+)
 
-# --- REGISTRAR VENTA ---
+# =========================
+# ===== REGISTRAR VENTA ===
+# =========================
 if menu == "Registrar venta":
     st.session_state.vendedor = st.text_input("👤 Nombre del empleado / vendedor", value=st.session_state.vendedor)
     st.session_state.nombre = st.text_input("Nombre del cliente", value=st.session_state.nombre)
@@ -220,11 +226,13 @@ if menu == "Registrar venta":
 
     st.markdown(f"### 💰 Total generado en el día: **${total_general:.2f}**")
 
-# --- VER REGISTROS ---
+# ==========================
+# ===== VER REGISTROS  =====
+# ==========================
 elif menu == "Ver registros":
     st.header("📋 Ventas registradas en la base de datos")
 
-    # ✅ Paso 1: Filtros por fecha
+    # ✅ Filtros por fecha
     st.subheader("📆 Filtrar ventas por rango de fechas")
     start_date = st.date_input("Fecha inicio", value=date.today().replace(day=1))
     end_date = st.date_input("Fecha fin", value=date.today())
@@ -237,13 +245,13 @@ elif menu == "Ver registros":
             df = pd.DataFrame(registros)
             df["fecha"] = pd.to_datetime(df["fecha"]).dt.tz_localize(None)
 
-            # ✅ Ajuste: incluir el último día completo
+            # ✅ Incluir el último día completo
             mask = (df["fecha"] >= pd.to_datetime(start_date)) & (df["fecha"] < pd.to_datetime(end_date) + pd.Timedelta(days=1))
             df_filtrado = df.loc[mask]
 
             st.dataframe(df_filtrado)
 
-            # ✅ Paso 2: Corte mensual automático
+            # ✅ Corte del período
             st.subheader("📊 Corte de ventas del período seleccionado")
             total_ventas = df_filtrado["total"].sum()
             cantidad_ventas = len(df_filtrado)
@@ -253,7 +261,7 @@ elif menu == "Ver registros":
             st.markdown(f"**Cantidad de ventas:** {cantidad_ventas}")
             st.markdown(f"**Promedio por venta:** ${promedio:.2f}")
 
-            # ✅ Paso 3: Descargar reporte en Excel o CSV
+            # ✅ Descargas
             st.subheader("📥 Descargar reporte")
             csv = df_filtrado.to_csv(index=False).encode("utf-8")
             st.download_button(
@@ -263,20 +271,153 @@ elif menu == "Ver registros":
                 mime="text/csv"
             )
 
-            output = BytesIO()
-            with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-                df_filtrado.to_excel(writer, index=False, sheet_name="Ventas")
-            st.download_button(
-                label="📊 Descargar Excel",
-                data=output.getvalue(),
-                file_name="reporte_ventas_filtrado.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+            try:
+                output = BytesIO()
+                with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+                    df_filtrado.to_excel(writer, index=False, sheet_name="Ventas")
+                st.download_button(
+                    label="📊 Descargar Excel",
+                    data=output.getvalue(),
+                    file_name="reporte_ventas_filtrado.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+            except Exception:
+                st.info("Para exportar a Excel en la nube, agrega 'XlsxWriter' a requirements.txt.")
 
         else:
             st.info("Aún no hay ventas registradas.")
     except Exception as e:
         st.error(f"Error al obtener los registros: {e}")
+
+# ============================
+# ===== REGISTRAR ENCARGO ====
+# ============================
+elif menu == "Registrar encargo":
+    st.header("📦 Registrar encargo (kilos a $22/kg)")
+
+    vendedor_enc = st.text_input("👤 Nombre del empleado / vendedor (encargo)", value=st.session_state.vendedor)
+    cliente_enc = st.text_input("Nombre del cliente (encargo)")
+    kilos = st.number_input("Kilos pesados", min_value=0.0, step=0.1)
+    PRECIO_KILO = 22
+    total_enc = round(kilos * PRECIO_KILO, 2)
+    st.markdown(f"**Total encargo (kilos × $22): ${total_enc:.2f}**")
+
+    dinero_enc = st.number_input("Dinero entregado por el cliente (encargo)", min_value=0.0, step=1.0)
+    cambio_enc = round(max(dinero_enc - total_enc, 0.0), 2)
+    st.markdown(f"**💵 Cambio a entregar: ${cambio_enc:.2f}**")
+
+    if st.button("✅ Registrar encargo"):
+        # Validaciones
+        if not vendedor_enc.strip():
+            st.warning("Ingresa el nombre del vendedor.")
+        elif not cliente_enc.strip():
+            st.warning("Ingresa el nombre del cliente.")
+        elif kilos <= 0:
+            st.warning("Ingresa los kilos pesados (mayor a 0).")
+        elif dinero_enc < total_enc:
+            st.error(f"Dinero insuficiente para el encargo. Faltan ${total_enc - dinero_enc:.2f}")
+        else:
+            try:
+                data = {
+                    "fecha": datetime.now(timezone("America/Mexico_City")).isoformat(),
+                    "vendedor": vendedor_enc.strip(),
+                    "cliente": cliente_enc.strip(),
+                    "kilos": float(kilos),
+                    "total": float(total_enc),
+                    "dinero": float(dinero_enc),
+                    "cambio": float(cambio_enc),
+                    "estado": "En espera"
+                }
+                supabase.table("encargos_kilos").insert(data).execute()
+                st.success("✅ Encargo registrado en la base de datos (estado: En espera).")
+            except Exception as e:
+                st.error(f"Error al guardar el encargo: {e}")
+
+# ========================
+# ===== VER ENCARGOS  ====
+# ========================
+elif menu == "Ver encargos":
+    st.header("📋 Encargos (kilos)")
+
+    # Filtros
+    st.subheader("📆 Filtrar encargos por rango de fechas")
+    start_date_e = st.date_input("Fecha inicio", value=date.today().replace(day=1), key="enc_start")
+    end_date_e = st.date_input("Fecha fin", value=date.today(), key="enc_end")
+
+    estado_filtro = st.selectbox("Filtrar por estado", ["Todos", "En espera", "Entregado"])
+
+    try:
+        response = supabase.table("encargos_kilos").select("*").order("fecha", desc=True).execute()
+        registros_e = response.data
+
+        if registros_e:
+            df_e = pd.DataFrame(registros_e)
+            # Conversión de fecha
+            if "fecha" in df_e.columns:
+                df_e["fecha"] = pd.to_datetime(df_e["fecha"]).dt.tz_localize(None)
+
+            # Filtro por fechas (incluye día fin completo)
+            mask_e = (df_e["fecha"] >= pd.to_datetime(start_date_e)) & (df_e["fecha"] < pd.to_datetime(end_date_e) + pd.Timedelta(days=1))
+            df_e = df_e.loc[mask_e]
+
+            # Filtro por estado
+            if estado_filtro != "Todos" and "estado" in df_e.columns:
+                df_e = df_e[df_e["estado"] == estado_filtro]
+
+            st.dataframe(df_e)
+
+            # ✅ Totales del período (igual estilo que ventas)
+            st.subheader("📊 Totales de encargos del período")
+            total_importe = float(df_e["total"].sum()) if "total" in df_e.columns else 0.0
+            total_kilos = float(df_e["kilos"].sum()) if "kilos" in df_e.columns else 0.0
+            cantidad_enc = int(len(df_e))
+            st.markdown(f"**Kilos totales:** {total_kilos:.2f} kg")
+            st.markdown(f"**Cantidad de encargos:** {cantidad_enc}")
+            st.markdown(f"**Total de ventas del período:** ${total_importe:.2f}")
+
+            # Descargar
+            st.subheader("📥 Descargar reporte (encargos)")
+            csv_e = df_e.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="📁 Descargar CSV (encargos)",
+                data=csv_e,
+                file_name="reporte_encargos_filtrado.csv",
+                mime="text/csv"
+            )
+
+            try:
+                output_e = BytesIO()
+                with pd.ExcelWriter(output_e, engine="xlsxwriter") as writer:
+                    df_e.to_excel(writer, index=False, sheet_name="Encargos")
+                st.download_button(
+                    label="📊 Descargar Excel (encargos)",
+                    data=output_e.getvalue(),
+                    file_name="reporte_encargos_filtrado.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+            except Exception:
+                st.info("Para exportar a Excel en la nube, agrega 'XlsxWriter' a requirements.txt.")
+
+            # Marcar como entregado
+            st.subheader("✅ Marcar encargo como entregado")
+            pendientes = df_e[df_e["estado"] == "En espera"] if "estado" in df_e.columns else pd.DataFrame()
+            if not pendientes.empty and "id" in pendientes.columns:
+                opciones = pendientes["id"].astype(str).tolist()
+                encargo_sel = st.selectbox("Selecciona el ID del encargo en espera", opciones)
+                if st.button("Marcar como entregado"):
+                    try:
+                        supabase.table("encargos_kilos").update({"estado": "Entregado"}).eq("id", int(encargo_sel)).execute()
+                        st.success(f"Encargo {encargo_sel} marcado como Entregado.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error al actualizar el encargo: {e}")
+            else:
+                st.info("No hay encargos en espera en el rango/estado seleccionado.")
+
+        else:
+            st.info("Aún no hay encargos registrados.")
+    except Exception as e:
+        st.error(f"Error al obtener los encargos: {e}")
 
 # --- ADMIN: REINICIAR BASE DE DATOS ---
 st.sidebar.write("---")
@@ -286,7 +427,7 @@ if st.sidebar.button("🧹 Eliminar todos los registros y reiniciar IDs"):
     st.session_state.modo_admin = True
 
 if "modo_admin" in st.session_state and st.session_state.modo_admin:
-    st.warning("⚠️ Esta acción eliminará **todos los registros** de ventas y reiniciará los IDs a 1.")
+    st.warning("⚠️ Esta acción eliminará **todos los registros** de ventas y encargos, y **reiniciará los IDs** de ambas tablas (usando RPC).")
     password = st.text_input("Introduce la contraseña de administrador:", type="password", key="admin_pass")
     confirmar = st.checkbox("Confirmo que deseo eliminar todos los registros permanentemente.")
 
@@ -296,11 +437,15 @@ if "modo_admin" in st.session_state and st.session_state.modo_admin:
         elif not confirmar:
             st.warning("Debes marcar la casilla de confirmación para continuar.")
         else:
-            with st.spinner("Eliminando registros y reiniciando secuencia..."):
+            with st.spinner("Eliminando registros y reiniciando secuencias..."):
                 try:
+                    # 🔁 Reiniciar ambas tablas vía RPC (sin delete())
                     supabase.rpc("reset_ventas").execute()
+                    supabase.rpc("reset_encargos_kilos").execute()
+
                     time.sleep(1)
-                    st.success("✅ Registros eliminados y IDs reiniciados correctamente.")
+                    st.success("✅ Se eliminaron todos los registros y se reiniciaron los IDs de **ventas** y **encargos_kilos**.")
                     st.session_state.modo_admin = False
+                    st.rerun()
                 except Exception as e:
                     st.error(f"Error al reiniciar la base de datos: {e}")
