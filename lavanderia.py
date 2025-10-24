@@ -10,8 +10,8 @@ from io import BytesIO
 st.set_page_config(page_title="Lavandería", layout="wide")
 
 # --- CONEXIÓN A SUPABASE ---
-SUPABASE_URL = "https://bempjrdqahqqjulatlcb.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJlbXBqcmRxYWhxcWp1bGF0bGNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk4NjMyMzEsImV4cCI6MjA3NTQzOTIzMX0.qrx-H5c5mdKJP8RnHoyiETwmbBgx1Yvc8yGmW3NiuiU"
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # --- PRODUCTOS ---
@@ -449,3 +449,4 @@ if "modo_admin" in st.session_state and st.session_state.modo_admin:
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error al reiniciar la base de datos: {e}")
+
