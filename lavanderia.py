@@ -1286,3 +1286,4 @@ if "modo_admin" in st.session_state and st.session_state.modo_admin:
                     st.error(f"Error al reiniciar la base de datos: {e}")
 
 
+
