@@ -11,8 +11,8 @@ from math import ceil
 # ========== CONFIG ==========
 st.set_page_config(page_title="Lavandería", layout="wide")
 
-SUPABASE_URL = st.secrets["SUPABASE_URL"]
-SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+SUPABASE_URL = "https://bempjrdqahqqjulatlcb.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJlbXBqcmRxYWhxcWp1bGF0bGNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk4NjMyMzEsImV4cCI6MjA3NTQzOTIzMX0.qrx-H5c5mdKJP8RnHoyiETwmbBgx1Yvc8yGmW3NiuiU"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ========== CATÁLOGOS ==========
@@ -910,7 +910,7 @@ elif menu == "Ver encargos":
                         dinero_cobrar = st.number_input("💳 Monto recibido ahora", min_value=0.0, step=1.0, value=st.session_state.get(k_pago, 0.0), key=k_pago)
                         cambio_preview = ceil_pesos(max(dinero_cobrar - ceil_pesos(total_encargo_bd), 0.0))
                         st.markdown(f"**💵 Cambio a entregar (previo):** ${cambio_preview:,.2f}")
-                        st.caption("Se calcula contra el total ceileado en BD.")
+                        #st.caption("Se calcula contra el total ceileado en BD.")
 
                     col_bt1, col_bt2 = st.columns(2)
                     if col_bt1.button("💾 Guardar uso / pago", key=f"guardar_uso_pago_{encargo_id_sel}"):
