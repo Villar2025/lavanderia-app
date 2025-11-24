@@ -11,8 +11,8 @@ from math import ceil
 # ========== CONFIG ==========
 st.set_page_config(page_title="Lavandería", layout="wide")
 
-SUPABASE_URL = "https://bempjrdqahqqjulatlcb.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJlbXBqcmRxYWhxcWp1bGF0bGNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk4NjMyMzEsImV4cCI6MjA3NTQzOTIzMX0.qrx-H5c5mdKJP8RnHoyiETwmbBgx1Yvc8yGmW3NiuiU"
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ========== CATÁLOGOS ==========
@@ -137,6 +137,26 @@ def ceil_cols_df(df, cols):
 def money_col(label):
     return st.column_config.NumberColumn(label, format="$%.2f")
 
+# ======= Helper para normalizar fechas =======
+def normalizar_fecha_col(col):
+    """
+    Convierte una columna de fechas a datetime sin zona horaria,
+    ajustando a America/Mexico_City cuando venga con tz (ej. UTC).
+    """
+    s = pd.to_datetime(col, errors="coerce")
+    tzinfo = getattr(s.dt, "tz", None)
+    if tzinfo is not None:
+        try:
+            # Convertir de tz original (ej. UTC) a America/Mexico_City
+            s = s.dt.tz_convert("America/Mexico_City").dt.tz_localize(None)
+        except Exception:
+            # Fallback: sólo quitar tz si lo anterior falla
+            try:
+                s = s.dt.tz_localize(None)
+            except Exception:
+                pass
+    return s
+
 # Helpers encargo
 def key_for(base: str) -> str:
     return f"{base}_run{st.session_state.enc_run_id}"
@@ -238,14 +258,11 @@ if menu == "Registrar venta":
                 for p, c in cat_seleccionados.items():
                     precio_cat = productos_cat[p]
                     display_c = c
-                    if p == "Secadora 9 kg (30 minutos)":
-                        display_c = c * 2
-                    display_precio = precio_efectivo(p, precio_cat)
-                    subtotal = display_precio * display_c
+                    subtotal = precio_cat * c
                     col1, col2, col3, col4 = st.columns([3,1,1,1])
                     col1.write(p)
                     col2.write(display_c)
-                    col3.write(f"${ceil_pesos(display_precio):,.2f}")
+                    col3.write(f"${ceil_pesos(precio_cat):,.2f}")
                     col4.write(f"${ceil_pesos(subtotal):,.2f}")
                 st.write("---")
 
@@ -421,18 +438,7 @@ elif menu == "Ver registros":
             df = pd.DataFrame(registros)
 
             if "fecha" in df.columns:
-                try:
-                    s = pd.to_datetime(df["fecha"], errors="coerce")
-                    if hasattr(s.dt, "tz"):
-                        df["fecha"] = s.dt.tz_convert(None)
-                    else:
-                        df["fecha"] = s
-                    try:
-                        df["fecha"] = df["fecha"].dt.tz_localize(None)
-                    except Exception:
-                        pass
-                except Exception:
-                    df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce")
+                df["fecha"] = normalizar_fecha_col(df["fecha"])
 
             if "fecha" in df.columns:
                 mask = (df["fecha"] >= pd.to_datetime(start_date)) & (df["fecha"] < pd.to_datetime(end_date) + pd.Timedelta(days=1))
@@ -613,7 +619,6 @@ elif menu == "Registrar encargo":
         dinero_recibido = st.number_input("💳 ¿Con cuánto paga?", min_value=0.0, step=1.0, key=key_for("dinero_recibido_enc_live"))
         cambio_enc_ce = ceil_pesos(max(dinero_recibido - total_enc_ce, 0.0))
         st.markdown(f"**💵 Cambio a entregar: ${cambio_enc_ce:,.2f}**")
-        #st.caption("El cambio se calcula contra el total ceileado.")
 
     def hay_servicios():
         return any([
@@ -636,7 +641,7 @@ elif menu == "Registrar encargo":
         elif (kilos <= 0) and (not hay_servicios()) and (not st.session_state.otros_encargo_live):
             st.warning("Agrega kilos, un servicio adicional o algún producto en 'Otros'.")
         elif pago_estado == "Pagado" and dinero_recibido < total_enc_ce:
-            st.error(f"El monto recibido (${ceil_pesos(dinero_recibido):,.2f}) no cubre el total (${total_enc_ce:,.2f}.")
+            st.error(f"El monto recibido (${ceil_pesos(dinero_recibido):,.2f}) no cubre el total (${total_enc_ce:,.2f}).")
         else:
             try:
                 if pago_estado == "Pagado":
@@ -771,7 +776,7 @@ elif menu == "Ver encargos":
         if registros_e:
             df_e = pd.DataFrame(registros_e)
             if "fecha" in df_e.columns:
-                df_e["fecha"] = pd.to_datetime(df_e["fecha"]).dt.tz_localize(None)
+                df_e["fecha"] = normalizar_fecha_col(df_e["fecha"])
 
             mask_e = (df_e["fecha"] >= pd.to_datetime(start_date_e)) & (df_e["fecha"] < pd.to_datetime(end_date_e) + pd.Timedelta(days=1))
             df_e = df_e.loc[mask_e].copy()
@@ -910,7 +915,6 @@ elif menu == "Ver encargos":
                         dinero_cobrar = st.number_input("💳 Monto recibido ahora", min_value=0.0, step=1.0, value=st.session_state.get(k_pago, 0.0), key=k_pago)
                         cambio_preview = ceil_pesos(max(dinero_cobrar - ceil_pesos(total_encargo_bd), 0.0))
                         st.markdown(f"**💵 Cambio a entregar (previo):** ${cambio_preview:,.2f}")
-                        #st.caption("Se calcula contra el total ceileado en BD.")
 
                     col_bt1, col_bt2 = st.columns(2)
                     if col_bt1.button("💾 Guardar uso / pago", key=f"guardar_uso_pago_{encargo_id_sel}"):
@@ -992,33 +996,54 @@ elif menu == "Ver encargos":
 # ===== RESUMEN DE USO =======
 # ============================
 elif menu == "Resumen de uso":
-    st.header("📊 Resumen de uso — Ventas vs Encargos")
+    st.header("📊 Resumen de uso")
 
     st.subheader("📆 Selecciona rango de fechas")
     start_date_u = st.date_input("Fecha inicio", value=date.today().replace(day=1), key="uso_start")
     end_date_u = st.date_input("Fecha fin", value=date.today(), key="uso_end")
-    #st.caption("El cálculo se hace al vuelo a partir de las tablas. No se guarda nada en la base de datos.")
 
     try:
+        # ---- VENTAS ----
         ventas = supabase.table("ventas").select("*").order("fecha", desc=True).execute().data or []
         df_v = pd.DataFrame(ventas) if ventas else pd.DataFrame()
         if not df_v.empty and "fecha" in df_v.columns:
-            df_v["fecha"] = pd.to_datetime(df_v["fecha"]).dt.tz_localize(None)
+            df_v["fecha"] = normalizar_fecha_col(df_v["fecha"])
             mask_v = (df_v["fecha"] >= pd.to_datetime(start_date_u)) & (df_v["fecha"] < pd.to_datetime(end_date_u) + pd.Timedelta(days=1))
             df_v = df_v.loc[mask_v]
 
-        cnt_lav_v = sumar_dicts_en_col(df_v["lavadoras"]) if "lavadoras" in df_v.columns else Counter()
-        cnt_sec_v = sumar_dicts_en_col(df_v["secadoras"]) if "secadoras" in df_v.columns else Counter()
-        cnt_det_v = sumar_dicts_en_col(df_v["detergentes"]) if "detergentes" in df_v.columns else Counter()
-        cnt_bol_v = sumar_dicts_en_col(df_v["bolsas"]) if "bolsas" in df_v.columns else Counter()
-        cnt_ot_v  = sumar_dicts_en_col(df_v["otros"]) if "otros" in df_v.columns else Counter()
-
+        # ---- ENCARGOS ----
         encargos = supabase.table("encargos_kilos").select("*").order("fecha", desc=True).execute().data or []
         df_eu = pd.DataFrame(encargos) if encargos else pd.DataFrame()
         if not df_eu.empty and "fecha" in df_eu.columns:
-            df_eu["fecha"] = pd.to_datetime(df_eu["fecha"]).dt.tz_localize(None)
+            df_eu["fecha"] = normalizar_fecha_col(df_eu["fecha"])
             mask_eu = (df_eu["fecha"] >= pd.to_datetime(start_date_u)) & (df_eu["fecha"] < pd.to_datetime(end_date_u) + pd.Timedelta(days=1))
             df_eu = df_eu.loc[mask_eu]
+
+        # 🔹 FILTRO POR EMPLEADO (vendedor)
+        empleados_set = set()
+        if not df_v.empty and "vendedor" in df_v.columns:
+            empleados_set.update(df_v["vendedor"].dropna().unique().tolist())
+        if not df_eu.empty and "vendedor" in df_eu.columns:
+            empleados_set.update(df_eu["vendedor"].dropna().unique().tolist())
+
+        empleados = sorted(list(empleados_set))
+        empleado_sel = st.selectbox("Filtrar por empleado", ["Todos"] + empleados)
+
+        if empleado_sel != "Todos":
+            if not df_v.empty and "vendedor" in df_v.columns:
+                df_v = df_v[df_v["vendedor"] == empleado_sel]
+            if not df_eu.empty and "vendedor" in df_eu.columns:
+                df_eu = df_eu[df_eu["vendedor"] == empleado_sel]
+            st.markdown(f"Mostrando uso solo para el empleado **{empleado_sel}**.")
+        else:
+            st.markdown("Mostrando uso de **todos los empleados**.")
+
+        # Contadores (ya filtrados por empleado si se eligió uno)
+        cnt_lav_v = sumar_dicts_en_col(df_v["lavadoras"]) if not df_v.empty and "lavadoras" in df_v.columns else Counter()
+        cnt_sec_v = sumar_dicts_en_col(df_v["secadoras"]) if not df_v.empty and "secadoras" in df_v.columns else Counter()
+        cnt_det_v = sumar_dicts_en_col(df_v["detergentes"]) if not df_v.empty and "detergentes" in df_v.columns else Counter()
+        cnt_bol_v = sumar_dicts_en_col(df_v["bolsas"]) if not df_v.empty and "bolsas" in df_v.columns else Counter()
+        cnt_ot_v  = sumar_dicts_en_col(df_v["otros"]) if not df_v.empty and "otros" in df_v.columns else Counter()
 
         cnt_lav_e = sumar_dicts_en_col(df_eu["uso_lavadoras"]) if not df_eu.empty and "uso_lavadoras" in df_eu.columns else Counter()
         cnt_sec_e = sumar_dicts_en_col(df_eu["uso_secadoras"]) if not df_eu.empty and "uso_secadoras" in df_eu.columns else Counter()
@@ -1060,7 +1085,7 @@ elif menu == "Resumen de uso":
                     int(df_lav["Total"].sum() + df_sec["Total"].sum() + df_det["Total"].sum() + df_bol["Total"].sum() + df_ot["Total"].sum()))
 
         st.write("---")
-        st.subheader("📥 Descargar CSV (resumen de uso: ventas vs encargos)")
+        st.subheader("📥 Descargar CSV (resumen de uso)")
         df_export = pd.concat([
             df_lav.assign(Categoría="Lavadoras"),
             df_sec.assign(Categoría="Secadoras"),
@@ -1093,7 +1118,7 @@ elif menu == "Administración":
             return pd.DataFrame(columns=base_cols)
 
         df = df.copy()
-        df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce").dt.tz_localize(None)
+        df["fecha"] = normalizar_fecha_col(df["fecha"])
         mask = (df["fecha"] >= pd.to_datetime(fecha_ini)) & (df["fecha"] < pd.to_datetime(fecha_fin) + pd.Timedelta(days=1))
         df = df.loc[mask]
 
@@ -1264,7 +1289,7 @@ if st.sidebar.button("🧹 Eliminar todos los registros y reiniciar IDs"):
     st.session_state.modo_admin = True
 
 if "modo_admin" in st.session_state and st.session_state.modo_admin:
-    st.warning("⚠️ Esta acción eliminará **todos los registros** de ventas y encargos, y **reiniciará los IDs** de ambas tablas (usando RPC).")
+    st.warning("⚠️ Esta acción eliminará **todos los registros** de ventas y encargos, y **reiniciará los IDs** de ambas tablas.")
     password = st.text_input("Introduce la contraseña de administrador:", type="password", key="admin_pass")
     confirmar = st.checkbox("Confirmo que deseo eliminar todos los registros permanentemente.")
 
@@ -1284,6 +1309,3 @@ if "modo_admin" in st.session_state and st.session_state.modo_admin:
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error al reiniciar la base de datos: {e}")
-
-
-
