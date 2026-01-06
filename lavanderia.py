@@ -391,35 +391,6 @@ if menu == "Registrar venta":
     st.write("---")
     st.button("🆕 Nueva venta", on_click=reiniciar_todo)
 
-    st.write("---")
-    st.markdown("## 📊 Resumen acumulado del día")
-    total_general = 0.0
-    for categoria, productos in st.session_state.resumen_dia.items():
-        if productos:
-            st.markdown(f"**{categoria}**")
-            col1, col2, col3 = st.columns([3, 1, 1])
-            col1.markdown("**Producto**")
-            col2.markdown("**Cantidad total**")
-            col3.markdown("**Monto total (ceil)**")
-            st.write("---")
-            for p, c in productos.items():
-                if p in lavadoras_secadoras:
-                    precio = precio_efectivo(p, lavadoras_secadoras[p])
-                elif p in detergentes:
-                    precio = detergentes[p]
-                elif p in bolsas:
-                    precio = bolsas[p]
-                elif p in otros_catalogo:
-                    precio = otros_catalogo[p]
-                else:
-                    continue
-                subtotal = precio * c
-                total_general += subtotal
-                col1, col2, col3 = st.columns([3, 1, 1])
-                col1.write(p); col2.write(c); col3.write(f"${ceil_pesos(subtotal):,.2f}")
-            st.write("---")
-    st.markdown(f"### 💰 Total generado en el día: **${ceil_pesos(total_general):,.2f}**")
-
 # ==========================
 # ===== VER REGISTROS  =====
 # ==========================
@@ -510,6 +481,63 @@ elif menu == "Ver registros":
             st.markdown(f"**Cantidad de ventas:** {cantidad_ventas}")
             st.markdown(f"**Promedio por venta:** ${ceil_pesos(promedio):,.2f}")
 
+            # ==========================
+            # ✅ Ventas por vendedor
+            # ==========================
+            st.subheader("👤 Ventas por vendedor del período seleccionado")
+
+            if not df_filtrado.empty and "vendedor" in df_filtrado.columns:
+                df_vend = df_filtrado.copy()
+
+                for colm in ["venta_sola", "otros_importe", "total"]:
+                    if colm in df_vend.columns:
+                        df_vend[colm] = pd.to_numeric(df_vend[colm], errors="coerce").fillna(0.0)
+                    else:
+                        df_vend[colm] = 0.0
+
+                resumen_vendedor = (
+                    df_vend.groupby("vendedor", as_index=False)
+                    .agg(
+                        ventas_sin_otros=("venta_sola", "sum"),
+                        otros=("otros_importe", "sum"),
+                        total=("total", "sum"),
+                        num_ventas=("id", "count") if "id" in df_vend.columns else ("total", "count"),
+                    )
+                    .sort_values("total", ascending=False)
+                )
+
+                resumen_vendedor = ceil_cols_df(resumen_vendedor, ["ventas_sin_otros", "otros", "total"])
+
+                resumen_vendedor["promedio_por_venta"] = resumen_vendedor.apply(
+                    lambda r: ceil_pesos((float(r["total"]) / int(r["num_ventas"])) if int(r["num_ventas"]) > 0 else 0.0),
+                    axis=1
+                )
+
+                st.dataframe(
+                    resumen_vendedor,
+                    use_container_width=True,
+                    column_config={
+                        "ventas_sin_otros": money_col("Venta (sin otros)"),
+                        "otros": money_col("Otros"),
+                        "total": money_col("Total vendido"),
+                        "promedio_por_venta": money_col("Promedio por venta"),
+                    }
+                )
+
+                # (Opcional) Descarga del resumen por vendedor
+                csv_vend = resumen_vendedor.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    "📁 Descargar CSV — Ventas por vendedor",
+                    data=csv_vend,
+                    file_name="ventas_por_vendedor.csv",
+                    mime="text/csv"
+                )
+            else:
+                st.info("No hay ventas en el período o no existe la columna 'vendedor'.")
+
+            # ==========================
+            # 📥 Descargas del detalle
+            # ==========================
             st.subheader("📥 Descargar reporte")
             df_export = df_view[[c for c in ["id","fecha","vendedor","cliente","venta_sola","otros_importe","total","cambio","lavadoras","secadoras","detergentes","bolsas","otros"] if c in df_view.columns]].copy()
 
@@ -520,11 +548,15 @@ elif menu == "Ver registros":
                 output = BytesIO()
                 with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
                     df_export.to_excel(writer, index=False, sheet_name="Ventas")
-                st.download_button("📊 Descargar Excel", data=output.getvalue(),
-                                   file_name="reporte_ventas_filtrado.xlsx",
-                                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                st.download_button(
+                    "📊 Descargar Excel",
+                    data=output.getvalue(),
+                    file_name="reporte_ventas_filtrado.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
             except Exception:
                 st.info("Para exportar a Excel en la nube, agrega 'XlsxWriter'.")
+
         else:
             st.info("Aún no hay ventas registradas.")
     except Exception as e:
@@ -1003,23 +1035,27 @@ elif menu == "Resumen de uso":
     end_date_u = st.date_input("Fecha fin", value=date.today(), key="uso_end")
 
     try:
-        # ---- VENTAS ----
+        # ========= VENTAS =========
         ventas = supabase.table("ventas").select("*").order("fecha", desc=True).execute().data or []
         df_v = pd.DataFrame(ventas) if ventas else pd.DataFrame()
         if not df_v.empty and "fecha" in df_v.columns:
             df_v["fecha"] = normalizar_fecha_col(df_v["fecha"])
-            mask_v = (df_v["fecha"] >= pd.to_datetime(start_date_u)) & (df_v["fecha"] < pd.to_datetime(end_date_u) + pd.Timedelta(days=1))
-            df_v = df_v.loc[mask_v]
+            df_v = df_v[
+                (df_v["fecha"] >= pd.to_datetime(start_date_u)) &
+                (df_v["fecha"] < pd.to_datetime(end_date_u) + pd.Timedelta(days=1))
+            ]
 
-        # ---- ENCARGOS ----
+        # ========= ENCARGOS =========
         encargos = supabase.table("encargos_kilos").select("*").order("fecha", desc=True).execute().data or []
         df_eu = pd.DataFrame(encargos) if encargos else pd.DataFrame()
         if not df_eu.empty and "fecha" in df_eu.columns:
             df_eu["fecha"] = normalizar_fecha_col(df_eu["fecha"])
-            mask_eu = (df_eu["fecha"] >= pd.to_datetime(start_date_u)) & (df_eu["fecha"] < pd.to_datetime(end_date_u) + pd.Timedelta(days=1))
-            df_eu = df_eu.loc[mask_eu]
+            df_eu = df_eu[
+                (df_eu["fecha"] >= pd.to_datetime(start_date_u)) &
+                (df_eu["fecha"] < pd.to_datetime(end_date_u) + pd.Timedelta(days=1))
+            ]
 
-        # 🔹 FILTRO POR EMPLEADO (vendedor)
+        # ========= FILTRO POR EMPLEADO =========
         empleados_set = set()
         if not df_v.empty and "vendedor" in df_v.columns:
             empleados_set.update(df_v["vendedor"].dropna().unique().tolist())
@@ -1034,11 +1070,87 @@ elif menu == "Resumen de uso":
                 df_v = df_v[df_v["vendedor"] == empleado_sel]
             if not df_eu.empty and "vendedor" in df_eu.columns:
                 df_eu = df_eu[df_eu["vendedor"] == empleado_sel]
-            st.markdown(f"Mostrando uso solo para el empleado **{empleado_sel}**.")
+            st.markdown(f"Mostrando información solo del empleado **{empleado_sel}**.")
         else:
-            st.markdown("Mostrando uso de **todos los empleados**.")
+            st.markdown("Mostrando información de **todos los empleados**.")
 
-        # Contadores (ya filtrados por empleado si se eligió uno)
+        # ==================================================
+        # 💰 TOTAL SOLO DE ENCARGOS (como Ver registros)
+        # ==================================================
+        st.subheader("💰 Total de encargos (período seleccionado)")
+
+        total_encargos = float(df_eu["total"].sum()) if (not df_eu.empty and "total" in df_eu.columns) else 0.0
+        st.metric("📦 Total encargos", f"${ceil_pesos(total_encargos):,.2f}")
+
+        st.write("---")
+
+        # ==================================================
+        # 📦 ENCARGOS POR VENDEDOR
+        # ==================================================
+        st.subheader("📦 Encargos por vendedor (período seleccionado)")
+
+        if not df_eu.empty and "vendedor" in df_eu.columns:
+            df_enc_vend = df_eu.copy()
+
+            for col in ["total", "total_kilos", "total_servicios", "otros_importe", "kilos"]:
+                if col in df_enc_vend.columns:
+                    df_enc_vend[col] = pd.to_numeric(df_enc_vend[col], errors="coerce").fillna(0.0)
+                else:
+                    df_enc_vend[col] = 0.0
+
+            resumen_enc_vendedor = (
+                df_enc_vend.groupby("vendedor", as_index=False)
+                .agg(
+                    kilos=("kilos", "sum"),
+                    kilos_importe=("total_kilos", "sum"),
+                    servicios_importe=("total_servicios", "sum"),
+                    otros=("otros_importe", "sum"),
+                    total=("total", "sum"),
+                    num_encargos=("id", "count") if "id" in df_enc_vend.columns else ("total", "count"),
+                )
+                .sort_values("total", ascending=False)
+            )
+
+            resumen_enc_vendedor = ceil_cols_df(
+                resumen_enc_vendedor,
+                ["kilos_importe", "servicios_importe", "otros", "total"]
+            )
+
+            resumen_enc_vendedor["promedio_por_encargo"] = resumen_enc_vendedor.apply(
+                lambda r: ceil_pesos(
+                    (float(r["total"]) / int(r["num_encargos"]))
+                    if int(r["num_encargos"]) > 0 else 0.0
+                ),
+                axis=1
+            )
+
+            st.dataframe(
+                resumen_enc_vendedor,
+                use_container_width=True,
+                column_config={
+                    "kilos_importe": money_col("Kilos ($)"),
+                    "servicios_importe": money_col("Servicios ($)"),
+                    "otros": money_col("Otros ($)"),
+                    "total": money_col("Total ($)"),
+                    "promedio_por_encargo": money_col("Promedio por encargo"),
+                }
+            )
+
+            csv_enc = resumen_enc_vendedor.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "📁 Descargar CSV — Encargos por vendedor",
+                data=csv_enc,
+                file_name="encargos_por_vendedor.csv",
+                mime="text/csv"
+            )
+        else:
+            st.info("No hay encargos en el período seleccionado.")
+
+        st.write("---")
+
+        # ==================================================
+        # 📊 USO DE MÁQUINAS Y CONSUMIBLES
+        # ==================================================
         cnt_lav_v = sumar_dicts_en_col(df_v["lavadoras"]) if not df_v.empty and "lavadoras" in df_v.columns else Counter()
         cnt_sec_v = sumar_dicts_en_col(df_v["secadoras"]) if not df_v.empty and "secadoras" in df_v.columns else Counter()
         cnt_det_v = sumar_dicts_en_col(df_v["detergentes"]) if not df_v.empty and "detergentes" in df_v.columns else Counter()
@@ -1051,50 +1163,26 @@ elif menu == "Resumen de uso":
         cnt_bol_e = sumar_dicts_en_col(df_eu["bolsas_usadas"]) if not df_eu.empty and "bolsas_usadas" in df_eu.columns else Counter()
         cnt_ot_e  = sumar_dicts_en_col(df_eu["otros"]) if not df_eu.empty and "otros" in df_eu.columns else Counter()
 
-        def make_df(seccion_nombre, items, cnt_v, cnt_e):
+        def make_df(nombre, items, cnt_v, cnt_e):
             rows = []
             for it in items:
-                v = int(cnt_v.get(it, 0))
-                e = int(cnt_e.get(it, 0))
-                rows.append({"Ítem": it, "Por ventas": v, "Por encargos": e, "Total": v + e})
+                rows.append({
+                    "Ítem": it,
+                    "Por ventas": int(cnt_v.get(it, 0)),
+                    "Por encargos": int(cnt_e.get(it, 0)),
+                    "Total": int(cnt_v.get(it, 0)) + int(cnt_e.get(it, 0))
+                })
             df = pd.DataFrame(rows)
-            st.write(f"### {seccion_nombre}")
+            st.write(f"### {nombre}")
             st.dataframe(df, use_container_width=True)
-            st.markdown(f"**Total {seccion_nombre.lower()}:** {int(df['Total'].sum())}")
+            st.markdown(f"**Total {nombre.lower()}:** {int(df['Total'].sum())}")
             return df
 
-        items_lav = ["Lavadora 16 kg", "Lavadora 9 kg", "Lavadora 4 kg"]
-        items_sec = ["Secadora 9 kg (15 minutos)", "Secadora 9 kg (30 minutos)", "Secado"]
-        items_det = ["1 medida de jabón", "1 medida de suavizante", "1 medida de desmugrante"]
-        items_bol = ["1 bolsa chica", "1 bolsa mediana", "1 bolsa grande"]
-        items_ot  = list(otros_catalogo.keys())
-
-        df_lav = make_df("🧺 Lavadoras", items=items_lav, cnt_v=cnt_lav_v, cnt_e=cnt_lav_e)
-        df_sec = make_df("🔥 Secadoras",  items=items_sec, cnt_v=cnt_sec_v, cnt_e=cnt_sec_e)
-        df_det = make_df("🧴 Detergentes",items=items_det, cnt_v=cnt_det_v, cnt_e=cnt_det_e)
-        df_bol = make_df("🛍️ Bolsas",    items=items_bol, cnt_v=cnt_bol_v, cnt_e=cnt_bol_e)
-        df_ot  = make_df("🧪 Otros",      items=items_ot,  cnt_v=cnt_ot_v,  cnt_e=cnt_ot_e)
-
-        st.write("---")
-        colA, colB, colC = st.columns(3)
-        colA.metric("🔧 Total por ventas",
-                    int(df_lav["Por ventas"].sum() + df_sec["Por ventas"].sum() + df_det["Por ventas"].sum() + df_bol["Por ventas"].sum() + df_ot["Por ventas"].sum()))
-        colB.metric("📦 Total por encargos",
-                    int(df_lav["Por encargos"].sum() + df_sec["Por encargos"].sum() + df_det["Por encargos"].sum() + df_bol["Por encargos"].sum() + df_ot["Por encargos"].sum()))
-        colC.metric("🧮 Total general",
-                    int(df_lav["Total"].sum() + df_sec["Total"].sum() + df_det["Total"].sum() + df_bol["Total"].sum() + df_ot["Total"].sum()))
-
-        st.write("---")
-        st.subheader("📥 Descargar CSV (resumen de uso)")
-        df_export = pd.concat([
-            df_lav.assign(Categoría="Lavadoras"),
-            df_sec.assign(Categoría="Secadoras"),
-            df_det.assign(Categoría="Detergentes"),
-            df_bol.assign(Categoría="Bolsas"),
-            df_ot.assign(Categoría="Otros"),
-        ], axis=0)[["Categoría", "Ítem", "Por ventas", "Por encargos", "Total"]]
-        csv_export = df_export.to_csv(index=False).encode("utf-8")
-        st.download_button("📁 Descargar CSV (uso por ítem)", data=csv_export, file_name="resumen_uso_ventas_encargos.csv", mime="text/csv")
+        make_df("🧺 Lavadoras", ["Lavadora 16 kg", "Lavadora 9 kg", "Lavadora 4 kg"], cnt_lav_v, cnt_lav_e)
+        make_df("🔥 Secadoras", ["Secadora 9 kg (15 minutos)", "Secadora 9 kg (30 minutos)", "Secado"], cnt_sec_v, cnt_sec_e)
+        make_df("🧴 Detergentes", ["1 medida de jabón", "1 medida de suavizante", "1 medida de desmugrante"], cnt_det_v, cnt_det_e)
+        make_df("🛍️ Bolsas", ["1 bolsa chica", "1 bolsa mediana", "1 bolsa grande"], cnt_bol_v, cnt_bol_e)
+        make_df("🧪 Otros", list(otros_catalogo.keys()), cnt_ot_v, cnt_ot_e)
 
     except Exception as e:
         st.error(f"Error al generar el resumen: {e}")
