@@ -395,7 +395,7 @@ if menu == "Registrar venta":
 # ===== VER REGISTROS  =====
 # ==========================
 elif menu == "Ver registros":
-    st.header("📋 Ventas registradas en la base de datos")
+    st.header("📋 Ventas autoservicio")
 
     st.subheader("📆 Filtrar ventas por rango de fechas")
     start_date = st.date_input("Fecha inicio", value=date.today().replace(day=1))
@@ -605,19 +605,19 @@ elif menu == "Registrar encargo":
 
         st.markdown("**Almohada / Peluches (precio manual)**")
         col_a1, col_a2 = st.columns(2)
-        alm_pzas = col_a1.number_input("Cantidad de piezas", min_value=0, step=1, key=key_for("alm_pzas_live"))
-        alm_precio_unit = col_a2.number_input("Precio unitario (manual)", min_value=0.0, step=1.0, key=key_for("alm_precio_live"))
+        alm_pzas = col_a1.number_input("Cantidad de piezas (solo referencia)", min_value=0, step=1, key=key_for("alm_pzas_live"))
+        alm_precio_total = col_a2.number_input("Precio TOTAL (manual)", min_value=0.0, step=1.0, key=key_for("alm_precio_total_live"))
 
-    with st.expander("🧪 Otros (productos sueltos)", expanded=False):
-        if "otros_encargo_live" not in st.session_state:
-            st.session_state.otros_encargo_live = {}
-        otros_temp = {}
-        for prod, precio in otros_catalogo.items():
-            key = key_for(f"otros_enc_live_{prod.replace(' ', '_')}")
-            cant = st.number_input(f"{prod} (${precio})", min_value=0, step=1, key=key)
-            if cant > 0:
-                otros_temp[prod] = cant
-        st.session_state.otros_encargo_live = otros_temp
+    #with st.expander("🧪 Otros (productos sueltos)", expanded=False):
+        #if "otros_encargo_live" not in st.session_state:
+            #st.session_state.otros_encargo_live = {}
+        #otros_temp = {}
+        #for prod, precio in otros_catalogo.items():
+            #key = key_for(f"otros_enc_live_{prod.replace(' ', '_')}")
+            #cant = st.number_input(f"{prod} (${precio})", min_value=0, step=1, key=key)
+            #if cant > 0:
+                #otros_temp[prod] = cant
+        #st.session_state.otros_encargo_live = otros_temp
 
     precios_edredon = {"Individual": 80, "Matrimonial": 85, "King Size": 95}
     precios_colcha  = {"Individual": 75, "Matrimonial": 80, "King Size": 85}
@@ -627,22 +627,22 @@ elif menu == "Registrar encargo":
     subtotal_edredon   = edre_ind*precios_edredon["Individual"] + edre_mat*precios_edredon["Matrimonial"] + edre_ks*precios_edredon["King Size"]
     subtotal_colcha    = colcha_ind*precios_colcha["Individual"]  + colcha_mat*precios_colcha["Matrimonial"]  + colcha_ks*precios_colcha["King Size"]
     subtotal_manteles  = (kilos_manteles or 0) * 40
-    subtotal_almohada  = (alm_pzas or 0) * (alm_precio_unit or 0)
+    subtotal_almohada = float(alm_precio_total or 0.0)
     total_servicios_raw = round(subtotal_edredon + subtotal_colcha + subtotal_manteles + subtotal_almohada, 2)
-    subtotal_otros_enc = sum(otros_catalogo[p]*c for p, c in (st.session_state.otros_encargo_live or {}).items())
+    #subtotal_otros_enc = sum(otros_catalogo[p]*c for p, c in (st.session_state.otros_encargo_live or {}).items())
 
     # Ceil por partes y total (para BD y presentación)
     total_kilos_ce      = ceil_pesos(subtotal_kilos)
     total_servicios_ce  = ceil_pesos(total_servicios_raw)
-    otros_importe_ce    = ceil_pesos(subtotal_otros_enc)
-    total_enc_ce        = ceil_pesos(total_kilos_ce + total_servicios_ce + otros_importe_ce)
+    #otros_importe_ce    = ceil_pesos(subtotal_otros_enc)
+    total_enc_ce        = ceil_pesos(total_kilos_ce + total_servicios_ce)
 
     st.write("---")
     col_t1, col_t2, col_t3, col_t4 = st.columns(4)
     col_t1.metric("Ropa por kilo", f"${total_kilos_ce:,.2f}")
     col_t2.metric("Servicios adicionales", f"${total_servicios_ce:,.2f}")
-    col_t3.metric("Otros", f"${otros_importe_ce:,.2f}")
-    col_t4.metric("TOTAL encargo", f"${total_enc_ce:,.2f}")
+    #col_t3.metric("Otros", f"${otros_importe_ce:,.2f}")
+    col_t3.metric("TOTAL encargo", f"${total_enc_ce:,.2f}")
 
     pago_estado = st.radio("Estado del pago", ["Pagado", "Pendiente"], horizontal=True, index=1, key=key_for("estado_pago_encargo_live"))
     dinero_recibido = 0.0
@@ -657,7 +657,7 @@ elif menu == "Registrar encargo":
             edre_ind, edre_mat, edre_ks,
             colcha_ind, colcha_mat, colcha_ks,
             (kilos_manteles or 0) > 0,
-            (alm_pzas or 0) > 0 and (alm_precio_unit or 0) > 0
+            (alm_precio_total or 0) > 0
         ])
 
     st.write("---")
@@ -670,7 +670,7 @@ elif menu == "Registrar encargo":
             st.warning("Ingresa el teléfono del cliente.")
         elif not _tel_ok(telefono_enc):
             st.warning("El teléfono debe tener entre 8 y 15 dígitos (solo números).")
-        elif (kilos <= 0) and (not hay_servicios()) and (not st.session_state.otros_encargo_live):
+        elif (kilos <= 0) and (not hay_servicios()):
             st.warning("Agrega kilos, un servicio adicional o algún producto en 'Otros'.")
         elif pago_estado == "Pagado" and dinero_recibido < total_enc_ce:
             st.error(f"El monto recibido (${ceil_pesos(dinero_recibido):,.2f}) no cubre el total (${total_enc_ce:,.2f}).")
@@ -717,8 +717,8 @@ elif menu == "Registrar encargo":
                     "kilos": float(kilos or 0),
                     "total_kilos": float(total_kilos_ce),
                     "total_servicios": float(total_servicios_ce),
-                    "otros": {k: int(v) for k, v in (st.session_state.otros_encargo_live or {}).items() },
-                    "otros_importe": float(otros_importe_ce),
+                    #"otros": {k: int(v) for k, v in (st.session_state.otros_encargo_live or {}).items() },
+                    #"otros_importe": float(otros_importe_ce),
                     "total": float(total_enc_ce),
                     "dinero": float(dinero_db),
                     "cambio": float(cambio_db),
@@ -1077,7 +1077,7 @@ elif menu == "Resumen de uso":
         # ==================================================
         # 💰 TOTAL SOLO DE ENCARGOS (como Ver registros)
         # ==================================================
-        st.subheader("💰 Total de encargos (período seleccionado)")
+        st.subheader("💰 Ventas por encargo (período seleccionado)")
 
         total_encargos = float(df_eu["total"].sum()) if (not df_eu.empty and "total" in df_eu.columns) else 0.0
         st.metric("📦 Total encargos", f"${ceil_pesos(total_encargos):,.2f}")
@@ -1193,6 +1193,40 @@ elif menu == "Resumen de uso":
 elif menu == "Administración":
     st.header("💼 Administración — Ingresos por día, semana y mes")
 
+    # ==========================
+    # 🔐 LOGIN ADMIN
+    # ==========================
+
+    if "admin_autenticado" not in st.session_state:
+        st.session_state.admin_autenticado = False
+
+    # ✅ Obtener password sin romper en local
+    try:
+        ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
+    except Exception:
+        ADMIN_PASSWORD = "anacampana"  # fallback local
+
+    if not st.session_state.admin_autenticado:
+        st.warning("🔒 Acceso restringido. Ingresa la contraseña de administrador.")
+        admin_pass = st.text_input("Contraseña Administrador", type="password")
+
+        if st.button("🔓 Entrar"):
+            if admin_pass == ADMIN_PASSWORD:
+                st.session_state.admin_autenticado = True
+                st.success("Acceso concedido.")
+                st.rerun()
+            else:
+                st.error("Contraseña incorrecta.")
+
+        st.stop()
+
+    if st.button("🚪 Cerrar sesión"):
+        st.session_state.admin_autenticado = False
+        st.rerun()
+
+    st.write("---")
+
+
     st.subheader("📆 Rango de análisis")
     col_r1, col_r2 = st.columns(2)
     fecha_ini = col_r1.date_input("Fecha inicio", value=date.today().replace(day=1), key="adm_start")
@@ -1264,7 +1298,7 @@ elif menu == "Administración":
             # Encargos desglosado: Kilos, Servicios, Otros
             df_all["kilos_only"]          = df_all.apply(lambda r: r["kilos_importe"]     if r["tipo"]=="Encargo" else 0.0, axis=1)
             df_all["servicios_only"]      = df_all.apply(lambda r: r["servicios_importe"] if r["tipo"]=="Encargo" else 0.0, axis=1)
-            df_all["otros_encargos_only"] = df_all.apply(lambda r: r["otros_importe"]     if r["tipo"]=="Encargo" else 0.0, axis=1)
+            #df_all["otros_encargos_only"] = df_all.apply(lambda r: r["otros_importe"]     if r["tipo"]=="Encargo" else 0.0, axis=1)
 
             # ===== Métricas de rango (6 apartados) =====
             ingreso_total_rango = float(df_all["total_ingreso"].sum())
@@ -1272,15 +1306,15 @@ elif menu == "Administración":
             otros_ventas_rango  = float(df_all["otros_ventas_only"].sum())
             kilos_rango         = float(df_all["kilos_only"].sum())
             servicios_rango     = float(df_all["servicios_only"].sum())
-            otros_enc_rango     = float(df_all["otros_encargos_only"].sum())
+            #otros_enc_rango     = float(df_all["otros_encargos_only"].sum())
 
             c1, c2, c3, c4, c5, c6 = st.columns(6)
-            c1.metric("Ingreso total (rango)",  f"${ceil_pesos(ingreso_total_rango):,.2f}")
-            c2.metric("Ventas (sin otros)",     f"${ceil_pesos(ventas_sin_otros_rg):,.2f}")
-            c3.metric("Otros (ventas)",         f"${ceil_pesos(otros_ventas_rango):,.2f}")
+            c1.metric("Ingreso total",  f"${ceil_pesos(ingreso_total_rango):,.2f}")
+            c2.metric("Ventas autoservicio",     f"${ceil_pesos(ventas_sin_otros_rg):,.2f}")
+            c3.metric("Otros (granel)",         f"${ceil_pesos(otros_ventas_rango):,.2f}")
             c4.metric("Kilos (encargos)",       f"${ceil_pesos(kilos_rango):,.2f}")
-            c5.metric("Servicios (encargos)",   f"${ceil_pesos(servicios_rango):,.2f}")
-            c6.metric("Otros (en encargo)",     f"${ceil_pesos(otros_enc_rango):,.2f}")
+            c5.metric("Edredón (otros)",   f"${ceil_pesos(servicios_rango):,.2f}")
+            #c6.metric("Otros (en encargo)",     f"${ceil_pesos(otros_enc_rango):,.2f}")
 
             st.write("---")
 
@@ -1294,7 +1328,7 @@ elif menu == "Administración":
                     otros_ventas_only=("otros_ventas_only","sum"),
                     kilos_only=("kilos_only","sum"),
                     servicios_only=("servicios_only","sum"),
-                    otros_encargos_only=("otros_encargos_only","sum"),
+                    #otros_encargos_only=("otros_encargos_only","sum"),
                 )
 
                 # Orden temporal amigable
@@ -1311,7 +1345,7 @@ elif menu == "Administración":
                 # Ceil para vista/export
                 money_cols_admin = [
                     "ingreso_total","ventas_sin_otros","otros_ventas_only",
-                    "kilos_only","servicios_only","otros_encargos_only"
+                    "kilos_only","servicios_only",#"otros_encargos_only"
                 ]
                 base = ceil_cols_df(base, money_cols_admin)
 
@@ -1323,7 +1357,7 @@ elif menu == "Administración":
                     "otros_ventas_only",
                     "kilos_only",
                     "servicios_only",
-                    "otros_encargos_only",
+                    #"otros_encargos_only",
                 ]
                 base = base[[c for c in desired_cols if c in base.columns]]
 
@@ -1332,11 +1366,11 @@ elif menu == "Administración":
                     use_container_width=True,
                     column_config={
                         "ingreso_total":       money_col("Ingreso total"),
-                        "ventas_sin_otros":    money_col("Ventas (sin otros)"),
-                        "otros_ventas_only":   money_col("Otros (ventas)"),
+                        "ventas_sin_otros":    money_col("Ventas autoservicio"),
+                        "otros_ventas_only":   money_col("Otros (granel)"),
                         "kilos_only":          money_col("Kilos (encargos)"),
-                        "servicios_only":      money_col("Servicios (encargos)"),
-                        "otros_encargos_only": money_col("Otros (en encargo)"),
+                        "servicios_only":      money_col("Edredón (otros)"),
+                        #"otros_encargos_only": money_col("Otros (en encargo)"),
                     }
                 )
 
@@ -1358,7 +1392,7 @@ elif menu == "Administración":
                     c3.metric(f"Último {label_periodo} — Otros (ventas)",     f"${ceil_pesos(ult['otros_ventas_only']):,.2f}")
                     c4.metric(f"Último {label_periodo} — Kilos",              f"${ceil_pesos(ult['kilos_only']):,.2f}")
                     c5.metric(f"Último {label_periodo} — Servicios",          f"${ceil_pesos(ult['servicios_only']):,.2f}")
-                    c6.metric(f"Último {label_periodo} — Otros (encargo)",    f"${ceil_pesos(ult['otros_encargos_only']):,.2f}")
+                    #c6.metric(f"Último {label_periodo} — Otros (encargo)",    f"${ceil_pesos(ult['otros_encargos_only']):,.2f}")
 
                 st.write("---")
 
