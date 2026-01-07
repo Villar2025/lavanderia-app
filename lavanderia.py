@@ -1192,7 +1192,6 @@ elif menu == "Resumen de uso":
 # ===========================
 elif menu == "Administración":
     st.header("💼 Administración — Ingresos por día, semana y mes")
-    st.info(f"Secrets cargados: {'ADMIN_PASSWORD' in st.secrets}")
 
     # ==========================
     # 🔐 LOGIN ADMIN
@@ -1432,4 +1431,5 @@ if "modo_admin" in st.session_state and st.session_state.modo_admin:
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error al reiniciar la base de datos: {e}")
+
 
